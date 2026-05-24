@@ -6,7 +6,7 @@ import logging
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api_client import SunlitApiClient
@@ -22,6 +22,7 @@ from .const import (
     OPT_SOC_THRESHOLD_CRITICAL_LOW,
     OPT_SOC_THRESHOLD_HIGH,
     OPT_SOC_THRESHOLD_LOW,
+    SERVICE_IMPORT_HISTORY,
 )
 from .coordinators import (
     SunlitDeviceCoordinator,
@@ -30,6 +31,7 @@ from .coordinators import (
     SunlitStrategyHistoryCoordinator,
 )
 from .event_manager import SunlitEventManager
+from .statistics import async_import_family_history
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -163,12 +165,43 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "api_client": api_client,
     }
 
+    _async_register_services(hass)
+
     # Add update listener for options changes
     entry.async_on_unload(entry.add_update_listener(async_update_options))
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     return True
+
+
+def _async_register_services(hass: HomeAssistant) -> None:
+    """Register integration-wide services (only once)."""
+    if hass.services.has_service(DOMAIN, SERVICE_IMPORT_HISTORY):
+        return
+
+    async def _handle_import_history(call: ServiceCall) -> None:
+        """Backfill historical long-term statistics for all configured spaces."""
+        total = 0
+        for entry_data in hass.data.get(DOMAIN, {}).values():
+            api_client = entry_data["api_client"]
+            for family in entry_data["coordinators"].values():
+                family_coordinator = family["family"]
+                try:
+                    total += await async_import_family_history(
+                        hass,
+                        api_client,
+                        family_coordinator.family_id,
+                        family_coordinator.family_name,
+                    )
+                except Exception:
+                    _LOGGER.exception(
+                        "Failed to import historical statistics for space %s",
+                        family_coordinator.family_id,
+                    )
+        _LOGGER.info("Historical statistics import complete: %s day(s) total", total)
+
+    hass.services.async_register(DOMAIN, SERVICE_IMPORT_HISTORY, _handle_import_history)
 
 
 async def async_update_options(hass: HomeAssistant, entry: ConfigEntry) -> None:
@@ -181,5 +214,11 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
     if unload_ok := await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
         hass.data[DOMAIN].pop(entry.entry_id)
+
+        # Remove integration-wide services once the last entry is gone
+        if not hass.data[DOMAIN] and hass.services.has_service(
+            DOMAIN, SERVICE_IMPORT_HISTORY
+        ):
+            hass.services.async_remove(DOMAIN, SERVICE_IMPORT_HISTORY)
 
     return unload_ok

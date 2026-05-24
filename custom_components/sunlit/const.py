@@ -36,7 +36,11 @@ API_BATTERY_LOCAL_MODE_CONFIG = "/v1.7/battery/updateLocalModeConfig"
 API_STRATEGY_DEVICE_STATUS = "/v1.7/strategy/device/status"
 API_TARIFF_INDEX = "/v1.6/tariff/index"
 API_SPACE_STATISTICS_DYNAMIC_ENERGY = "/v1.1/space/statistics/dynamic/energy"
+API_SPACE_STATISTICS_DYNAMIC_EARNING = "/v1.1/space/statistics/dynamic/earning"
 API_NOTIFICATION_LIST = "/v1.5/notification/list"
+
+# Services
+SERVICE_IMPORT_HISTORY = "import_history"
 
 # Configuration keys
 CONF_EMAIL = "email"
