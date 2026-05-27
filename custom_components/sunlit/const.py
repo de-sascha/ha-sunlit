@@ -37,6 +37,8 @@ API_STRATEGY_DEVICE_STATUS = "/v1.7/strategy/device/status"
 API_TARIFF_INDEX = "/v1.6/tariff/index"
 API_SPACE_STATISTICS_DYNAMIC_ENERGY = "/v1.1/space/statistics/dynamic/energy"
 API_NOTIFICATION_LIST = "/v1.5/notification/list"
+API_STRATEGY_MY_LIST = "/v1.8/strategy/my/list"
+API_STRATEGY_SETTING_DETAIL = "/v1.8/strategy/setting/detail"
 
 # Configuration keys
 CONF_EMAIL = "email"

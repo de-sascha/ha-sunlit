@@ -351,6 +351,58 @@ class SunlitFamilyCoordinator(DataUpdateCoordinator):
         except Exception as err:
             _LOGGER.debug("Could not fetch current strategy data: %s", err)
 
+        # Fallback for fields the legacy /v1.1/space/currentStrategy endpoint
+        # stopped returning once the user switched to a SmartStrategy in the
+        # app: read the active strategy via /v1.8/strategy/setting/detail and
+        # extract the cap from the strategy-specific field. This keeps
+        # `max_output_power` (and the strategy name) populated under both
+        # TariffStrategy and SmartStrategy.
+        try:
+            if not family_data.get("max_output_power") or not family_data.get(
+                "battery_strategy"
+            ):
+                active = await self.api_client.fetch_active_strategy_setting(
+                    self.family_id
+                )
+                if isinstance(active, dict) and isinstance(active.get("detail"), dict):
+                    detail = active["detail"]
+                    strategy_type = active.get("strategyType")
+                    cap = None
+                    soc_min = None
+                    soc_max = None
+                    if strategy_type == "SmartStrategy":
+                        ss = detail.get("storageStrategy") or {}
+                        cap = ss.get("smartStrategyMaxOutputPower")
+                        soc_min = ss.get("socMin")
+                        soc_max = ss.get("socMax")
+                    elif strategy_type == "TariffStrategy":
+                        ts = detail.get("tariffStrategy") or {}
+                        high = ts.get("highPriceStrategy") or {}
+                        low = ts.get("lowPriceStrategy") or {}
+                        cap = high.get("smartStrategyMaxOutputPower") or low.get(
+                            "defaultExpectInverterOutput"
+                        )
+                        soc_min = high.get("socMin") or low.get("socMin")
+                        soc_max = high.get("socMax") or low.get("socMax")
+                    if cap is not None and not family_data.get("max_output_power"):
+                        family_data["max_output_power"] = cap
+                    if not family_data.get("battery_strategy") and strategy_type:
+                        family_data["battery_strategy"] = strategy_type
+                    if (
+                        soc_min is not None
+                        and family_data.get("current_soc_min") is None
+                    ):
+                        family_data["current_soc_min"] = soc_min
+                    if (
+                        soc_max is not None
+                        and family_data.get("current_soc_max") is None
+                    ):
+                        family_data["current_soc_max"] = soc_max
+        except Exception as err:
+            _LOGGER.debug(
+                "Could not fetch active strategy detail fallback: %s", err
+            )
+
     async def _fetch_charging_box_strategy(self, family_data: dict) -> None:
         """Fetch charging box strategy."""
         try:

@@ -25,6 +25,8 @@ from .const import (
     API_SPACE_STATISTICS_STATIC,
     API_SPACE_STRATEGY_HISTORY,
     API_STRATEGY_DEVICE_STATUS,
+    API_STRATEGY_MY_LIST,
+    API_STRATEGY_SETTING_DETAIL,
     API_TARIFF_INDEX,
     API_USER_LOGIN,
 )
@@ -828,6 +830,66 @@ class SunlitApiClient:
         except SunlitApiError as err:
             _LOGGER.error("Failed to fetch strategy for family %s: %s", family_id, err)
             raise
+
+    async def fetch_active_strategy_setting(
+        self, space_id: str | int
+    ) -> dict[str, Any] | None:
+        """Fetch the active strategy setting for a space.
+
+        Reads /v1.8/strategy/my/list and /v1.8/strategy/setting/detail to find
+        the strategy that is currently enabled in the app and return its full
+        configuration. This is needed for fields the legacy
+        /v1.1/space/currentStrategy endpoint stopped returning when the user
+        switched to a SmartStrategy in the app.
+
+        Args:
+            space_id: Space (family) ID
+
+        Returns:
+            Dictionary with:
+            - strategyType: "TariffStrategy" or "SmartStrategy"
+            - settingId: UUID of the active setting
+            - detail: Full strategy detail (content of setting/detail), or None
+              if the detail call failed.
+            Returns None if no active strategy could be determined.
+        """
+        try:
+            sid = int(space_id)
+            list_resp = await self._make_request(
+                "POST", API_STRATEGY_MY_LIST, json={"spaceId": sid}
+            )
+            entries = (list_resp.get("content") or {}).get("strategyList") or []
+            active = next((e for e in entries if e.get("enabled")), None)
+            if not active:
+                return None
+            strategy_type = active.get("strategyType")
+            setting_id = active.get("settingId")
+            detail = None
+            try:
+                detail_resp = await self._make_request(
+                    "POST",
+                    API_STRATEGY_SETTING_DETAIL,
+                    json={
+                        "primarySpaceId": sid,
+                        "spaceId": sid,
+                        "strategyType": strategy_type,
+                    },
+                )
+                detail = detail_resp.get("content")
+            except SunlitApiError as err:
+                _LOGGER.debug(
+                    "Could not fetch setting/detail for %s: %s", strategy_type, err
+                )
+            return {
+                "strategyType": strategy_type,
+                "settingId": setting_id,
+                "detail": detail,
+            }
+        except SunlitApiError as err:
+            _LOGGER.debug(
+                "Could not fetch active strategy for space %s: %s", space_id, err
+            )
+            return None
 
     async def fetch_space_strategy_history(
         self, family_id: str | int, page: int = 0, size: int = 20
