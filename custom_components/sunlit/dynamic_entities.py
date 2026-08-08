@@ -13,12 +13,15 @@ clean) while re-running the builder whenever a coordinator publishes new data.
 """
 
 from collections.abc import Callable, Iterable
+import logging
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import callback
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+
+_LOGGER = logging.getLogger(__name__)
 
 
 @callback
@@ -40,7 +43,14 @@ def async_setup_dynamic_entities[EntityT: Entity](
 
     @callback
     def _async_add_missing_entities() -> None:
-        new_entities = build_entities(created_keys)
+        # Coordinators call their listeners directly, so an exception escaping
+        # here would abort the remaining listeners for that update. A malformed
+        # payload must not take the rest of the integration down with it.
+        try:
+            new_entities = build_entities(created_keys)
+        except Exception:
+            _LOGGER.exception("Error building entities for %s", config_entry.title)
+            return
         if new_entities:
             async_add_entities(new_entities, update_before_add)
 

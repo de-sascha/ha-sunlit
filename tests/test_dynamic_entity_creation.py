@@ -116,6 +116,51 @@ async def test_family_sensors_are_not_created_twice(
     assert len(keys) == len(set(keys)), "an entity was created more than once"
 
 
+async def test_family_payload_is_not_polluted_by_merges(
+    hass: HomeAssistant,
+    mock_config_entry,
+):
+    """Merging strategy/aggregate keys must not write into the live payload.
+
+    The merged dict only decides which keys deserve an entity; each sensor
+    reads its value from its own coordinator. Since the builder now runs on
+    every update, writing back would keep injecting foreign keys.
+    """
+    mock_config_entry.add_to_hass(hass)
+
+    family_coordinator = _family_coordinator({"device_count": 1})
+    device_coordinator = _device_coordinator()
+    device_coordinator.data["aggregates"] = {"total_solar_power": 931.0}
+    _install(hass, mock_config_entry, family_coordinator, device_coordinator)
+
+    async_add_entities = Mock()
+    await sensor_setup_entry(hass, mock_config_entry, async_add_entities)
+
+    assert "total_solar_power" in _added_keys(async_add_entities)
+    assert family_coordinator.data["family"] == {"device_count": 1}
+
+
+async def test_builder_error_does_not_escape_to_the_coordinator(
+    hass: HomeAssistant,
+    mock_config_entry,
+):
+    """A failing build must not break the coordinator's listener dispatch."""
+    mock_config_entry.add_to_hass(hass)
+
+    family_coordinator = _family_coordinator({"device_count": 1})
+    device_coordinator = _device_coordinator()
+    _install(hass, mock_config_entry, family_coordinator, device_coordinator)
+
+    async_add_entities = Mock()
+    await sensor_setup_entry(hass, mock_config_entry, async_add_entities)
+
+    # A malformed payload: the builder iterates devices and will raise.
+    device_coordinator.data["devices"] = "not-a-dict"
+    listener = device_coordinator.async_add_listener.call_args[0][0]
+
+    listener()  # must swallow the error rather than propagate it
+
+
 async def test_device_sensors_created_when_device_appears_later(
     hass: HomeAssistant,
     mock_config_entry,

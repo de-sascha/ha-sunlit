@@ -102,7 +102,11 @@ async def async_setup_entry(
                 if "family" in family_coordinator.data:
                     # Skip binary sensor fields (they're handled by binary_sensor platform)
                     skip_fields = {"has_fault", "battery_full"}
-                    family_data = family_coordinator.data["family"]
+                    # Copy: the merges below only determine which keys deserve an
+                    # entity. Each sensor reads its value from its own
+                    # coordinator, so writing the merged keys back into the live
+                    # family payload would pollute it on every update.
+                    family_data = dict(family_coordinator.data["family"])
 
                     # Add strategy data if available
                     if (
@@ -188,9 +192,9 @@ async def async_setup_entry(
 
                 # Create individual device sensors from device coordinator
                 if device_coordinator.data and "devices" in device_coordinator.data:
-                    for device_id, device_data in device_coordinator.data[
-                        "devices"
-                    ].items():
+                    # Sensors come from sensor_map, not from the reported keys,
+                    # so the payload itself is not read here.
+                    for device_id in device_coordinator.data["devices"]:
                         if (
                             device_coordinator.devices
                             and device_id in device_coordinator.devices
